@@ -1,0 +1,5 @@
+flet>=0.25.0
+python-barcode[images]
+pillow
+fpdf2
+bcrypt
