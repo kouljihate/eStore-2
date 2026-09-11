@@ -56,6 +56,26 @@ class DashboardScreen:
         data = get_dashboard_data(uid)
         fmt = lambda v: format_currency(v, cur)
 
+        movements = get_stock_movements(uid, limit=5)
+        transactions = get_transactions(uid, limit=5)
+        is_new = (data["product_count"] == 0 and data["cash_income"] == 0
+                  and data["cash_expense"] == 0
+                  and not movements and not transactions)
+        if is_new:
+            controls = [
+                ft.Text(t(self.page, "dash_title"), size=24,
+                        weight=ft.FontWeight.W_700),
+                self._empty_state(),
+            ]
+            if self.msg_bar is not None:
+                controls.append(self.msg_bar)
+            return ft.Column(
+                controls=controls,
+                spacing=16,
+                scroll=ft.ScrollMode.AUTO,
+                expand=True,
+            )
+
         kpis = ft.ResponsiveRow(
             controls=[
                 ft.Container(self._kpi_card(t(self.page, "kpi_stock_value"), fmt(data["stock_value"]), ft.Icons.INVENTORY, T.PRIMARY), col={"sm": 6, "lg": 4, "xl": 2}),
@@ -70,9 +90,9 @@ class DashboardScreen:
         )
 
         recent_movements = responsive.hscroll(
-            self._movements_table(get_stock_movements(uid, limit=5)), self.page)
+            self._movements_table(movements), self.page)
         recent_transactions = responsive.hscroll(
-            self._transactions_table(get_transactions(uid, limit=5)), self.page)
+            self._transactions_table(transactions), self.page)
 
         controls = [
                 ft.Text(t(self.page, "dash_title"), size=24, weight=ft.FontWeight.W_700),
@@ -95,9 +115,32 @@ class DashboardScreen:
         if self.msg_bar is not None:
             controls.append(self.msg_bar)
         return ft.Column(
+            controls=controls,
             spacing=16,
             scroll=ft.ScrollMode.AUTO,
             expand=True,
+        )
+
+    def _empty_state(self):
+        dark = (self.page.session.store.get("theme_mode") or "dark") == "dark"
+        surface = T.SURFACE_DARK if dark else T.SURFACE_LIGHT
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Icon(ft.Icons.DASHBOARD_OUTLINED, size=56,
+                            color="#888888"),
+                    ft.Text(t(self.page, "empty_dashboard"), size=18,
+                            weight=ft.FontWeight.W_700),
+                    ft.Text(t(self.page, "empty_dashboard_hint"), size=13,
+                            color="#888888", text_align=ft.TextAlign.CENTER),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=8,
+            ),
+            alignment=ft.Alignment.CENTER,
+            padding=40,
+            bgcolor=surface,
+            border_radius=14,
         )
 
     def _table_card(self, title, table):

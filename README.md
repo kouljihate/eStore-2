@@ -39,7 +39,7 @@ Since there are no users yet, the app opens on the **registration screen**
 The app registers custom fonts from `assets/fonts/` (value paths are relative
 to the assets dir, per Flet's font loading):
 
-- **Arabic UI**: `VIP RAWY THIN THIN` — `assets/fonts/VIPRawyThinThin.ttf`.
+- **Arabic UI**: `VIP Rawy Thin` — `assets/fonts/VIPRawyThinThin.ttf`.
   If the font is installed in the Windows fonts folder(s) instead, it is
   usable by family name without bundling.
 - **English / French UI & all numbers (all languages)**: `Comfortaa` —

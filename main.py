@@ -86,9 +86,15 @@ class eShopApp:
 
     # ------------------------------------------------------------------
     def _register_font(self):
+        # Explicit file mapping: AR -> assets/fonts/VIPRawyThinThin.ttf,
+        # EN/FR -> assets/fonts/Comfortaa-Regular.ttf.
         fonts = {}
         for family, file in ((T.ARABIC_FONT, "VIPRawyThinThin.ttf"),
                              (T.LATIN_FONT, "Comfortaa-Regular.ttf")):
+            exact = os.path.join(ASSETS_DIR, "fonts", file)
+            if os.path.isfile(exact):
+                fonts[family] = "/fonts/" + file
+                continue
             path = _find_font(file)
             if not path:
                 continue
@@ -101,8 +107,8 @@ class eShopApp:
 
     def _apply_session_defaults(self):
         for key, default in (("lang", "ar"), ("theme_mode", "dark"),
-                             ("currency", "MAD")):
-            if not self.page.session.store.get(key):
+                              ("currency", "MAD"), ("show_footer", True)):
+            if self.page.session.store.get(key) is None:
                 self.page.session.store.set(key, default)
 
     def _apply_rtl(self):
@@ -176,7 +182,10 @@ class eShopApp:
         else:
             body = ft.Container(content=content, expand=True, padding=pad)
         controls = [body]
-        if footer:
+        show_footer = self.page.session.store.get("show_footer")
+        if show_footer is None:
+            show_footer = True
+        if footer and show_footer:
             controls.append(self._build_bottom_bar())
         column = ft.Column(controls=controls, spacing=0, expand=True)
         if self._show_nav and responsive.wide(self.page):
@@ -214,47 +223,47 @@ class eShopApp:
         dark = (self.page.session.store.get("theme_mode") or "dark") == "dark"
         surface = T.SURFACE_DARK if dark else T.SURFACE_LIGHT
         lang = self.page.session.store.get("lang") or "ar"
+        rtl = lang == "ar"
 
         lang_buttons = ft.SegmentedButton(
             segments=[
-                ft.Segment(value=lg, label=ft.Text(LANG_LABELS[lg], size=11))
+                ft.Segment(value=lg, label=ft.Text(LANG_LABELS[lg], size=10))
                 for lg in SUPPORTED_LANGS
             ],
             selected=[lang],
             show_selected_icon=False,
-            padding=4,
+            padding=8,
             style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
             ),
             on_change=self._on_bottom_lang_change,
         )
         version_badge = ft.Container(
             content=ft.Text(
                 f"{t(self.page, 'version')} {V.VERSION}",
-                size=12,
+                size=10,
                 weight=ft.FontWeight.W_600,
                 color=T.WARNING,
             ),
             bgcolor=f"{T.WARNING}22",
             border_radius=8,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=2),
         )
 
         return ft.Container(
             content=ft.Row(
                 controls=[
                     ft.Container(
-                        expand=2,
-                    ),
-                    ft.Container(
                         content=lang_buttons,
                         expand=6,
-                        alignment=ft.Alignment.CENTER,
+                        alignment=(ft.Alignment.CENTER_RIGHT if rtl
+                                   else ft.Alignment.CENTER_LEFT),
                     ),
                     ft.Container(
                         content=version_badge,
-                        expand=2,
-                        alignment=ft.Alignment.CENTER_RIGHT,
+                        expand=4,
+                        alignment=(ft.Alignment.CENTER_LEFT if rtl
+                                   else ft.Alignment.CENTER_RIGHT),
                     ),
                 ],
                 spacing=8,
@@ -371,7 +380,28 @@ class eShopApp:
             screen = SettingsScreen(self.page, on_rebuild=self._refresh_main,
                                     on_logout=self._logout)
         self._current_screen_obj = screen
-        self._set_content(screen.build())
+        try:
+            content = screen.build()
+        except Exception:
+            logger.exception("screen build failed (tab=%s)", self.tab)
+            content = self._error_card()
+        if self.tab == 1 and hasattr(content, "controls"):
+            logger.info("stock render controls=%s",
+                        len(content.controls or []))
+        self._set_content(content)
+
+    def _error_card(self):
+        return ft.Column(
+            controls=[
+                ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=T.ERROR),
+                ft.Text(t(self.page, "generic_error"), size=15,
+                        color=T.ERROR, text_align=ft.TextAlign.CENTER),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=10,
+            expand=True,
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
 
     def _refresh_main(self):
         self._apply_rtl()

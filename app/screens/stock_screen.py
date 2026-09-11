@@ -39,14 +39,13 @@ class StockScreen:
         self.uid = page.session.store.get("user_id")
         self.products = []
         self.filtered = []
-        self.list_view = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
-        w = responsive.viewport_width(page)
+        self.list_view = ft.Column(spacing=10)
         self.search_field = ft.TextField(
             hint_text=t(page, "search"),
             prefix_icon=ft.Icons.SEARCH,
             border_radius=10,
-            width=int(w * 0.55) if responsive.is_mobile(page) and w else 300,
             dense=True,
+            expand=True,
             on_change=lambda e: self._refresh(),
         )
 
@@ -56,38 +55,50 @@ class StockScreen:
     def build(self):
         self._load()
 
-        header = ft.Row(
+        header = ft.Column(
             controls=[
-                ft.Text(t(self.page, "products_title"),
-                        size=22, weight=ft.FontWeight.W_700),
-                ft.Container(expand=True),
-                self.search_field,
-                ft.IconButton(
-                    icon=ft.Icons.CLEAR,
-                    tooltip=t(self.page, "clear"),
-                    on_click=lambda e: self._clear_search(),
+                ft.Row(
+                    controls=[
+                        ft.Text(t(self.page, "products_title"),
+                                size=22, weight=ft.FontWeight.W_700,
+                                expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CLEAR,
+                            tooltip=t(self.page, "clear"),
+                            on_click=lambda e: self._clear_search(),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.FilledButton(
-                    content=t(self.page, "add_product"),
-                    icon=ft.Icons.ADD,
-                    on_click=lambda e: self._open_product_dialog(None),
-                ),
-                ft.OutlinedButton(
-                    content=t(self.page, "print_stickers"),
-                    icon=ft.Icons.PRINT,
-                    on_click=lambda e: self._open_print_dialog(),
+                ft.Row(
+                    controls=[
+                        self.search_field,
+                        ft.IconButton(
+                            icon=ft.Icons.ADD,
+                            icon_color=T.PRIMARY,
+                            tooltip=t(self.page, "add_product"),
+                            on_click=lambda e: self._open_product_dialog(None),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.PRINT,
+                            icon_color=T.PRIMARY,
+                            tooltip=t(self.page, "print_stickers"),
+                            on_click=lambda e: self._open_print_dialog(),
+                        ),
+                    ],
+                    spacing=4,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
-            wrap=True,
             spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-        self._refresh()
+        self._refresh(update=False)
         return ft.Column(
             controls=[header, self.list_view, self.msg_bar],
             spacing=12,
             expand=True,
+            scroll=ft.ScrollMode.AUTO,
         )
 
     # ------------------------------------------------------------------
@@ -96,7 +107,7 @@ class StockScreen:
     def _load(self):
         self.products = get_products(self.uid)
 
-    def _refresh(self):
+    def _refresh(self, update=True):
         query = (self.search_field.value or "").strip().lower()
         if query:
             self.filtered = [
@@ -110,7 +121,9 @@ class StockScreen:
             self.filtered = list(self.products)
 
         self.list_view.controls.clear()
-        if not self.filtered:
+        if not self.products:
+            self.list_view.controls.append(self._empty_stock_state())
+        elif not self.filtered:
             self.list_view.controls.append(
                 ft.Container(
                     content=ft.Text(t(self.page, "no_products_found"),
@@ -122,10 +135,31 @@ class StockScreen:
         else:
             for product in self.filtered:
                 self.list_view.controls.append(self._product_card(product))
+        if not update:
+            return
         try:
             self.page.update()
         except Exception:
             pass
+
+    def _empty_stock_state(self):
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, size=56,
+                            color="#888888"),
+                    ft.Text(t(self.page, "no_stock_title"), size=18,
+                            weight=ft.FontWeight.W_700),
+                    ft.Text(t(self.page, "no_stock_hint"), size=13,
+                            color="#888888",
+                            text_align=ft.TextAlign.CENTER),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=10,
+            ),
+            alignment=ft.Alignment.CENTER,
+            padding=40,
+        )
 
     def _clear_search(self):
         self.search_field.value = ""
@@ -147,23 +181,35 @@ class StockScreen:
                               tooltip=t(self.page, "edit"),
                               on_click=functools.partial(self._open_product_dialog, p)),
                 ft.OutlinedButton(
-                    content=t(self.page, "sell"), icon=ft.Icons.POINT_OF_SALE, compact=True,
-                    style=ft.ButtonStyle(color=T.SUCCESS),
+                    content=t(self.page, "sell"), icon=ft.Icons.POINT_OF_SALE,
+                    style=ft.ButtonStyle(
+                        color=T.SUCCESS,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                    ),
                     on_click=functools.partial(self._open_sell, p),
                 ),
                 ft.OutlinedButton(
-                    content=t(self.page, "sell_credit"), icon=ft.Icons.CREDIT_SCORE, compact=True,
-                    style=ft.ButtonStyle(color=T.WARNING),
+                    content=t(self.page, "sell_credit"), icon=ft.Icons.CREDIT_SCORE,
+                    style=ft.ButtonStyle(
+                        color=T.WARNING,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                    ),
                     on_click=functools.partial(self._open_credit_sell, p),
                 ),
                 ft.OutlinedButton(
-                    content=t(self.page, "stock_in"), icon=ft.Icons.INBOX, compact=True,
-                    style=ft.ButtonStyle(color=T.PRIMARY),
+                    content=t(self.page, "stock_in"), icon=ft.Icons.INBOX,
+                    style=ft.ButtonStyle(
+                        color=T.PRIMARY,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                    ),
                     on_click=functools.partial(self._open_movement, p, "in"),
                 ),
                 ft.OutlinedButton(
-                    content=t(self.page, "stock_out"), icon=ft.Icons.OUTBOX, compact=True,
-                    style=ft.ButtonStyle(color=T.ERROR),
+                    content=t(self.page, "stock_out"), icon=ft.Icons.OUTBOX,
+                    style=ft.ButtonStyle(
+                        color=T.ERROR,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                    ),
                     on_click=functools.partial(self._open_movement, p, "out"),
                 ),
                 ft.IconButton(icon=ft.Icons.HISTORY, icon_color=T.WARNING,
@@ -394,6 +440,80 @@ class StockScreen:
             log_action(self.page, "product_edit", f"id={self._editing_id} name={name}")
             self.msg_bar.show_success(t(self.page, "product_updated"))
         self._close(self.product_dialog)
+        self._load()
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    # Bulk add dialog
+    # ------------------------------------------------------------------
+    BULK_ROWS = 5
+
+    def _open_bulk_dialog(self):
+        self._bulk_rows = []
+        rows = []
+        for _ in range(self.BULK_ROWS):
+            f_name = ft.TextField(
+                label=t(self.page, "product_name"), dense=True,
+                border_radius=8, expand=True,
+            )
+            f_qty = ft.TextField(
+                label=t(self.page, "item_qty"), value="0",
+                keyboard_type=ft.KeyboardType.NUMBER, dense=True,
+                border_radius=8, width=90,
+            )
+            f_price = ft.TextField(
+                label=t(self.page, "unit_price"), value="0",
+                keyboard_type=ft.KeyboardType.NUMBER, dense=True,
+                border_radius=8, width=110,
+            )
+            self._bulk_rows.append((f_name, f_qty, f_price))
+            rows.append(ft.Row(controls=[f_name, f_qty, f_price], spacing=8))
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(t(self.page, "add_bulk_products")),
+            content=ft.Column(
+                controls=rows,
+                spacing=8,
+                scroll=ft.ScrollMode.AUTO,
+                width=responsive.dialog_width(self.page, 430),
+            ),
+            actions=[
+                ft.TextButton(t(self.page, "cancel"),
+                              on_click=lambda e: self._close(dialog)),
+                ft.FilledButton(t(self.page, "save"),
+                                on_click=lambda e: self._save_bulk()),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self._bulk_dialog = dialog
+        self.page.show_dialog(dialog)
+
+    def _save_bulk(self):
+        parsed = []
+        for f_name, f_qty, f_price in self._bulk_rows:
+            name = (f_name.value or "").strip()
+            if not name:
+                continue
+            try:
+                qty = float((f_qty.value or "0").strip())
+                price = float((f_price.value or "0").strip())
+            except ValueError:
+                self.msg_bar.show_error(t(self.page, "value_invalid"))
+                return
+            if qty < 0 or price < 0:
+                self.msg_bar.show_error(t(self.page, "value_invalid"))
+                return
+            parsed.append((name, qty, price))
+        if not parsed:
+            self.msg_bar.show_error(t(self.page, "item_required"))
+            return
+        for name, qty, price in parsed:
+            add_product(self.uid, name, quantity=qty, price=price)
+        log_action(self.page, "product_bulk_add", f"count={len(parsed)}")
+        self.msg_bar.show_success(
+            f"{len(parsed)} — {t(self.page, 'bulk_added')}")
+        self._close(self._bulk_dialog)
         self._load()
         self._refresh()
 
@@ -746,7 +866,7 @@ class StockScreen:
         checks = []
         for p in self.products:
             cb = ft.Checkbox(
-                label=p["name"], value=False, dense=True,
+                label=p["name"], value=False,
                 data=p["id"],
             )
             self._print_checks[p["id"]] = cb

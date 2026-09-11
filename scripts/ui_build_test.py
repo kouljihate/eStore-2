@@ -96,9 +96,11 @@ def main():
     login = LoginScreen(page, on_login_success=lambda: None)
     c = login.build()
     assert isinstance(c, ft.Column)
-    # register path
-    db2 = db
-    page.session.remove("user_id")  # not needed
+
+    # Build all screens as a logged-in user (user_id=1 owns the test data),
+    # so product cards, KPIs and tables actually render. This catches
+    # control-construction crashes (e.g. unsupported button kwargs).
+    assert page.session.get("user_id") == uid
 
     dash = DashboardScreen(page)
     assert isinstance(dash.build(), ft.Column)

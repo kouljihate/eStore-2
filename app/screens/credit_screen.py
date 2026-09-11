@@ -111,13 +111,19 @@ class CreditScreen:
 
         filter_bar = ft.SegmentedButton(
             segments=[
-                ft.Segment(value="all", label=ft.Text(t(self.page, "all"))),
+                ft.Segment(value="all",
+                           label=ft.Text(t(self.page, "all"), size=12)),
                 ft.Segment(value="open",
-                           label=ft.Text(t(self.page, "status_open"))),
+                           label=ft.Text(t(self.page, "status_open"), size=12)),
                 ft.Segment(value="closed",
-                           label=ft.Text(t(self.page, "status_closed"))),
+                           label=ft.Text(t(self.page, "status_closed"), size=12)),
             ],
             selected=[self.filter],
+            show_selected_icon=False,
+            padding=4,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+            ),
             on_change=lambda e: self._set_filter(e),
         )
 

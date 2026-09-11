@@ -3,7 +3,7 @@ import flet as ft
 from app import theme as T
 from app.activity import log_action
 from app.currency import CURRENCIES
-from app.translations import LANG_LABELS, SUPPORTED_LANGS, t
+from app.translations import t
 
 
 class SettingsScreen:
@@ -14,34 +14,48 @@ class SettingsScreen:
         self.msg_bar = page.msg_bar
 
     def build(self):
-        lang = self.page.session.store.get("lang") or "ar"
         theme_mode = self.page.session.store.get("theme_mode") or "dark"
         currency = self.page.session.store.get("currency") or "MAD"
+        show_footer = self.page.session.store.get("show_footer")
+        if show_footer is None:
+            show_footer = True
 
         theme_buttons = ft.SegmentedButton(
             segments=[
                 ft.Segment(value="light",
                            label=ft.Row(controls=[
-                               ft.Icon(ft.Icons.LIGHT_MODE, size=16),
-                               ft.Text(t(self.page, "theme_light")),
+                               ft.Icon(ft.Icons.LIGHT_MODE, size=14),
+                               ft.Text(t(self.page, "theme_light"), size=12),
                            ], spacing=4)),
                 ft.Segment(value="dark",
                            label=ft.Row(controls=[
-                               ft.Icon(ft.Icons.DARK_MODE, size=16),
-                               ft.Text(t(self.page, "theme_dark")),
+                               ft.Icon(ft.Icons.DARK_MODE, size=14),
+                               ft.Text(t(self.page, "theme_dark"), size=12),
                            ], spacing=4)),
             ],
             selected=[theme_mode],
+            show_selected_icon=False,
+            padding=4,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+            ),
             on_change=lambda e: self._set_theme(e),
         )
 
-        lang_buttons = ft.SegmentedButton(
+        footer_buttons = ft.SegmentedButton(
             segments=[
-                ft.Segment(value=lg, label=ft.Text(LANG_LABELS[lg]))
-                for lg in SUPPORTED_LANGS
+                ft.Segment(value="yes",
+                           label=ft.Text(t(self.page, "yes"), size=12)),
+                ft.Segment(value="no",
+                           label=ft.Text(t(self.page, "no"), size=12)),
             ],
-            selected=[lang],
-            on_change=lambda e: self._set_lang(e),
+            selected=["yes" if show_footer else "no"],
+            show_selected_icon=False,
+            padding=4,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+            ),
+            on_change=lambda e: self._set_footer(e),
         )
 
         currency_dropdown = ft.Dropdown(
@@ -76,7 +90,7 @@ class SettingsScreen:
                 ft.Text(t(self.page, "settings_title"), size=22,
                         weight=ft.FontWeight.W_700),
                 section(t(self.page, "theme"), theme_buttons),
-                section(t(self.page, "language"), lang_buttons),
+                section(t(self.page, "display_footer"), footer_buttons),
                 section(t(self.page, "currency"), currency_dropdown),
                 ft.FilledButton(
                     content=t(self.page, "logout"),
@@ -98,14 +112,11 @@ class SettingsScreen:
         if self.on_rebuild:
             self.on_rebuild()
 
-    def _set_lang(self, e):
-        value = e.control.selected[0] if e.control.selected else "ar"
-        self.page.session.store.set("lang", value)
-        log_action(self.page, "language_change", f"lang={value}")
-        try:
-            self.page.rtl = value == "ar"
-        except Exception:
-            pass
+    def _set_footer(self, e):
+        value = e.control.selected[0] if e.control.selected else "yes"
+        show = value != "no"
+        self.page.session.store.set("show_footer", show)
+        log_action(self.page, "footer_toggle", f"show={show}")
         if self.on_rebuild:
             self.on_rebuild()
 
