@@ -72,6 +72,10 @@ class eShopApp:
         except Exception:
             logger.debug("window sizing not supported", exc_info=True)
         page.on_resize = self._on_resize
+        try:
+            page.on_error = self._on_page_error
+        except Exception:
+            logger.debug("page error hook not supported", exc_info=True)
         init_db()
 
         self.page.msg_bar = MessageBar(page)
@@ -123,7 +127,8 @@ class eShopApp:
         try:
             self.page.theme = T.AppTheme.get_theme(mode, lang)
         except Exception:
-            logger.debug("theme apply failed", exc_info=True)
+            logger.warning("theme apply failed (mode=%s lang=%s)",
+                           mode, lang, exc_info=True)
 
     def _build_nav(self):
         return ft.NavigationBar(
@@ -204,6 +209,13 @@ class eShopApp:
             new_controls = [column]
         self.view.controls = new_controls
         self.page.update()
+
+    def _on_page_error(self, e):
+        try:
+            detail = getattr(e, "data", e)
+        except Exception:
+            detail = "unknown client error"
+        logger.error("client error: %s", detail)
 
     def _on_resize(self, e):
         if not self._show_nav:
@@ -304,33 +316,20 @@ class eShopApp:
             else ft.ProgressRing(width=70, height=70, stroke_width=5)
         )
         self._loading = LoadingDots(self.page)
-        splash = ft.Stack(
+        splash = ft.Column(
             controls=[
-                ft.Column(
-                    controls=[spinner],
-                    expand=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                ),
-                ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            self._loading.build(),
-                            ft.Text(V.APP_NAME, size=30,
-                                    weight=ft.FontWeight.W_700,
-                                    color=T.PRIMARY),
-                            ft.Text(f"v{V.VERSION}", size=13,
-                                    color="#888888"),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=8,
-                    ),
-                    alignment=ft.Alignment(0, 1),
-                    padding=ft.Padding.only(bottom=28, left=16, right=16),
-                    expand=True,
-                ),
+                spinner,
+                self._loading.build(),
+                ft.Text(V.APP_NAME, size=30,
+                        weight=ft.FontWeight.W_700,
+                        color=T.PRIMARY),
+                ft.Text(f"v{V.VERSION}", size=13,
+                        color="#888888"),
             ],
             expand=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=12,
         )
         self._set_content(splash, center=False, footer=False)
         self._loading.start()

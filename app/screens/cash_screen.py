@@ -163,6 +163,7 @@ class CashScreen:
         )
 
     def _open_add_dialog(self):
+        log_action(self.page, "open_transaction_dialog")
         self.t_type = ft.Dropdown(
             label=t(self.page, "transaction_type"),
             options=[
@@ -208,7 +209,7 @@ class CashScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "save"),
                                 on_click=lambda e: self._do_add_transaction(dialog)),
             ],
@@ -248,3 +249,11 @@ class CashScreen:
         except Exception:
             dialog.open = False
             self.page.update()
+
+    def _cancel(self, dialog):
+        try:
+            title = dialog.title.value if hasattr(dialog.title, "value") else ""
+        except Exception:
+            title = ""
+        log_action(self.page, "cancel", f"dialog={title}")
+        self._close(dialog)

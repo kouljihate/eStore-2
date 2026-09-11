@@ -155,6 +155,7 @@ class CreditScreen:
 
     def _set_filter(self, e):
         self.filter = e.control.selected[0] if e.control.selected else "all"
+        log_action(self.page, "credit_filter", f"filter={self.filter}")
         if self.on_rebuild:
             self.on_rebuild()
 
@@ -223,6 +224,7 @@ class CreditScreen:
     # Detail dialog
     # ------------------------------------------------------------------
     def _open_detail(self, note_id):
+        log_action(self.page, "open_credit_detail", f"note={note_id}")
         note = get_credit_note(note_id, user_id=self.uid)
         if not note:
             self.msg_bar.show_error(t(self.page, "generic_error"))
@@ -276,7 +278,7 @@ class CreditScreen:
         remaining = note["total_amount"] - note["paid_amount"]
         actions = [
             ft.TextButton(t(self.page, "close"),
-                          on_click=lambda e: self._close(dialog)),
+                          on_click=lambda e: self._cancel(dialog)),
         ]
         if note["status"] == "open":
             actions.insert(0, ft.FilledButton(
@@ -318,6 +320,7 @@ class CreditScreen:
     # Add credit note dialog
     # ------------------------------------------------------------------
     def _open_add_note(self):
+        log_action(self.page, "open_credit_note_dialog")
         customers = get_customers(self.uid)
         products = get_products(self.uid)
         self.items = []
@@ -398,7 +401,7 @@ class CreditScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "save_credit_note"),
                                 on_click=lambda e: self._save_note(dialog)),
             ],
@@ -410,6 +413,8 @@ class CreditScreen:
 
     def _toggle_customer_fields(self):
         is_new = (self._seg_customer.value == "new")
+        log_action(self.page, "credit_customer_toggle",
+                   f"mode={'new' if is_new else 'existing'}")
         self.customer_dd.visible = not is_new
         self.f_cname.visible = is_new
         self.f_cphone.visible = is_new
@@ -420,6 +425,7 @@ class CreditScreen:
             pid = int(self.product_dd.value)
         except (TypeError, ValueError):
             return
+        log_action(self.page, "credit_product_select", f"product={pid}")
         for p in products:
             if p["id"] == pid:
                 self.f_unit_price.value = str(p["price"])
@@ -451,6 +457,8 @@ class CreditScreen:
         if qty + already > fresh["quantity"]:
             self.msg_bar.show_error(t(self.page, "insufficient_stock"))
             return
+        log_action(self.page, "credit_item_add",
+                   f"product={pid} qty={qty:g} price={price:g}")
         self.items.append({
             "product_id": pid,
             "name": fresh["name"],
@@ -490,6 +498,7 @@ class CreditScreen:
         self._rebuild_items_list()
 
     def _remove_item_by_value(self, product_id, qty, unit_price):
+        log_action(self.page, "credit_item_remove", f"product={product_id}")
         for i, it in enumerate(self.items):
             if (it["product_id"] == product_id and it["qty"] == qty
                     and it["unit_price"] == unit_price):
@@ -551,6 +560,7 @@ class CreditScreen:
     # Payment dialog
     # ------------------------------------------------------------------
     def _open_payment(self, note, parent_dialog):
+        log_action(self.page, "open_payment_dialog", f"note={note['id']}")
         cur = get_currency_code(self.page)
         remaining = note["total_amount"] - note["paid_amount"]
         self.pay_amount = ft.TextField(
@@ -584,7 +594,7 @@ class CreditScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "save"),
                                 on_click=lambda e:
                                 self._do_payment(note, dialog, parent_dialog)),
@@ -637,3 +647,11 @@ class CreditScreen:
         except Exception:
             dialog.open = False
             self.page.update()
+
+    def _cancel(self, dialog):
+        try:
+            title = dialog.title.value if hasattr(dialog.title, "value") else ""
+        except Exception:
+            title = ""
+        log_action(self.page, "cancel", f"dialog={title}")
+        self._close(dialog)

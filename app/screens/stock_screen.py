@@ -1,3 +1,4 @@
+import csv
 import functools
 import os
 
@@ -78,6 +79,12 @@ class StockScreen:
                             icon_color=T.PRIMARY,
                             tooltip=t(self.page, "add_product"),
                             on_click=lambda e: self._open_product_dialog(None),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.LIBRARY_ADD,
+                            icon_color=T.PRIMARY,
+                            tooltip=t(self.page, "add_bulk_products"),
+                            on_click=lambda e: self._open_bulk_dialog(),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.PRINT,
@@ -162,6 +169,7 @@ class StockScreen:
         )
 
     def _clear_search(self):
+        log_action(self.page, "search_clear")
         self.search_field.value = ""
         self._refresh()
 
@@ -293,6 +301,8 @@ class StockScreen:
     # ------------------------------------------------------------------
     def _open_product_dialog(self, p):
         editing = p is not None
+        log_action(self.page, "open_product_dialog",
+                   f"editing={editing} id={p['id'] if editing else None}")
         self._editing_id = p["id"] if editing else None
         pv = (lambda k: p[k] if p[k] is not None else "") if editing else (lambda k: "")
 
@@ -382,7 +392,7 @@ class StockScreen:
             content=form,
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(self.product_dialog)),
+                              on_click=lambda e: self._cancel(self.product_dialog)),
                 ft.FilledButton(t(self.page, "save"),
                                 on_click=lambda e: self._save_product()),
             ],
@@ -444,73 +454,207 @@ class StockScreen:
         self._refresh()
 
     # ------------------------------------------------------------------
-    # Bulk add dialog
+    # Bulk add via CSV (same columns as Add Product)
     # ------------------------------------------------------------------
-    BULK_ROWS = 5
+    # Canonical field -> accepted header spellings (any language).
+    CSV_FIELDS = {
+        "name": ("name", "product", "product_name", "nom", "produit"),
+        "quantity": ("quantity", "qty", "quantite", "quantité", "qte"),
+        "price": ("price", "selling_price", "selling", "prix", "prix_vente"),
+        "buying_price": ("buying_price", "buy", "buy_price", "cost",
+                         "prix_achat", "cout", "coût"),
+        "category": ("category", "categorie", "cat", "catégorie"),
+        "packaging": ("packaging", "conditionnement"),
+        "description": ("description", "desc"),
+        "low_stock_qty": ("low_stock_qty", "low", "low_stock", "seuil",
+                          "alerte"),
+        "supplier_name": ("supplier", "supplier_name", "fournisseur"),
+        "supplier_whatsapp": ("supplier_whatsapp", "whatsapp", "phone",
+                              "tel", "telephone", "téléphone"),
+        "supplier_email": ("supplier_email", "email", "mail"),
+        "barcode": ("barcode", "code", "codebarre", "code-barres"),
+    }
 
     def _open_bulk_dialog(self):
-        self._bulk_rows = []
-        rows = []
-        for _ in range(self.BULK_ROWS):
-            f_name = ft.TextField(
-                label=t(self.page, "product_name"), dense=True,
-                border_radius=8, expand=True,
-            )
-            f_qty = ft.TextField(
-                label=t(self.page, "item_qty"), value="0",
-                keyboard_type=ft.KeyboardType.NUMBER, dense=True,
-                border_radius=8, width=90,
-            )
-            f_price = ft.TextField(
-                label=t(self.page, "unit_price"), value="0",
-                keyboard_type=ft.KeyboardType.NUMBER, dense=True,
-                border_radius=8, width=110,
-            )
-            self._bulk_rows.append((f_name, f_qty, f_price))
-            rows.append(ft.Row(controls=[f_name, f_qty, f_price], spacing=8))
-
+        self._csv_rows = []
+        log_action(self.page, "open_bulk_dialog")
+        self._csv_info = ft.Text(t(self.page, "csv_hint"), size=12,
+                                 color="#888888")
+        self._csv_preview = ft.Column(spacing=4)
+        self.file_picker = self._ensure_picker()
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(t(self.page, "add_bulk_products")),
             content=ft.Column(
-                controls=rows,
-                spacing=8,
+                controls=[
+                    self._csv_info,
+                    ft.OutlinedButton(
+                        content=t(self.page, "open_csv"),
+                        icon=ft.Icons.UPLOAD_FILE,
+                        on_click=lambda e: self._pick_csv(),
+                    ),
+                    self._csv_preview,
+                ],
+                spacing=10,
                 scroll=ft.ScrollMode.AUTO,
-                width=responsive.dialog_width(self.page, 430),
+                width=responsive.dialog_width(self.page, 560),
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
-                ft.FilledButton(t(self.page, "save"),
-                                on_click=lambda e: self._save_bulk()),
+                              on_click=lambda e: self._cancel(dialog)),
+                ft.FilledButton(t(self.page, "import"),
+                                icon=ft.Icons.DOWNLOAD,
+                                on_click=lambda e: self._do_bulk_import()),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         self._bulk_dialog = dialog
         self.page.show_dialog(dialog)
 
-    def _save_bulk(self):
-        parsed = []
-        for f_name, f_qty, f_price in self._bulk_rows:
-            name = (f_name.value or "").strip()
-            if not name:
-                continue
+    def _ensure_picker(self):
+        # One shared FilePicker, registered with the client up-front.
+        # Appending to overlay without page.update() leaves the control
+        # unknown on the client ("Unknown control: FilePicker").
+        picker = getattr(self.page, "csv_picker", None)
+        if picker is None:
+            picker = ft.FilePicker()
             try:
-                qty = float((f_qty.value or "0").strip())
-                price = float((f_price.value or "0").strip())
+                self.page.overlay.append(picker)
+                self.page.update()
+                self.page.csv_picker = picker
+            except Exception:
+                pass
+        return picker
+
+    def _pick_csv(self):
+        log_action(self.page, "csv_pick")
+        self.page.run_task(self._pick_csv_async)
+
+    async def _pick_csv_async(self):
+        try:
+            files = await self.file_picker.pick_files(
+                dialog_title=t(self.page, "open_csv"),
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["csv"],
+                allow_multiple=False,
+            )
+        except Exception:
+            self.msg_bar.show_error(t(self.page, "generic_error"))
+            return
+        self._handle_picked_files(files or [])
+
+    def _handle_picked_files(self, files):
+        if not files:
+            return
+        picked = files[0]
+        name = getattr(picked, "name", "") or "file.csv"
+        log_action(self.page, "csv_opened", f"file={name}")
+        text = None
+        raw_bytes = getattr(picked, "bytes", None)
+        if raw_bytes:
+            try:
+                text = bytes(raw_bytes).decode("utf-8-sig")
+            except Exception:
+                text = None
+        if text is None:
+            path = getattr(picked, "path", None)
+            if not path:
+                self.msg_bar.show_error(t(self.page, "generic_error"))
+                return
+            try:
+                with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+                    text = fh.read()
+            except Exception:
+                self.msg_bar.show_error(t(self.page, "generic_error"))
+                return
+        self._parse_csv_text(text, name)
+
+    def _parse_csv_text(self, text, name):
+        import io
+
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            headers = {(h or "").strip().lower(): h
+                       for h in (reader.fieldnames or [])}
+            rows = []
+            for raw in reader:
+                item = {}
+                for field, aliases in self.CSV_FIELDS.items():
+                    item[field] = ""
+                    for alias in aliases:
+                        for norm, orig in headers.items():
+                            if norm == alias:
+                                item[field] = (raw.get(orig) or "").strip()
+                                break
+                        if item[field]:
+                            break
+                if item["name"]:
+                    rows.append(item)
+        except Exception:
+            self.msg_bar.show_error(t(self.page, "generic_error"))
+            return
+        if not rows:
+            self.msg_bar.show_error(t(self.page, "no_csv_rows"))
+            return
+        self._csv_rows = rows
+        self._csv_info.value = f"{name} — {len(rows)}"
+        preview = [
+            ft.DataRow(cells=[
+                ft.DataCell(ft.Text(r["name"], size=13)),
+                ft.DataCell(ft.Text(r["quantity"] or "0", size=13,
+                                    font_family=T.NUMBER_FONT)),
+                ft.DataCell(ft.Text(r["price"] or "0", size=13,
+                                    font_family=T.NUMBER_FONT)),
+            ])
+            for r in rows[:8]
+        ]
+        table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text(t(self.page, "product_name"))),
+                ft.DataColumn(ft.Text(t(self.page, "quantity"))),
+                ft.DataColumn(ft.Text(t(self.page, "price"))),
+            ],
+            rows=preview,
+        )
+        self._csv_preview.controls.clear()
+        self._csv_preview.controls.append(
+            responsive.hscroll(table, self.page))
+        self.page.update()
+
+    def _do_bulk_import(self):
+        if not self._csv_rows:
+            self.msg_bar.show_error(t(self.page, "no_csv_rows"))
+            return
+        parsed = []
+        for r in self._csv_rows:
+            try:
+                qty = float((r["quantity"] or "0").strip().replace(",", "."))
+                price = float((r["price"] or "0").strip().replace(",", "."))
+                buy = float((r["buying_price"] or "0").strip().replace(",", "."))
+                low = float((r["low_stock_qty"] or "5").strip().replace(",", "."))
             except ValueError:
                 self.msg_bar.show_error(t(self.page, "value_invalid"))
                 return
-            if qty < 0 or price < 0:
+            if qty < 0 or price < 0 or buy < 0 or low < 0:
                 self.msg_bar.show_error(t(self.page, "value_invalid"))
                 return
-            parsed.append((name, qty, price))
-        if not parsed:
-            self.msg_bar.show_error(t(self.page, "item_required"))
-            return
-        for name, qty, price in parsed:
-            add_product(self.uid, name, quantity=qty, price=price)
-        log_action(self.page, "product_bulk_add", f"count={len(parsed)}")
+            parsed.append({
+                "name": r["name"],
+                "quantity": qty,
+                "price": price,
+                "buying_price": buy,
+                "category": r["category"],
+                "packaging": r["packaging"],
+                "description": r["description"],
+                "low_stock_qty": low,
+                "supplier_name": r["supplier_name"],
+                "supplier_whatsapp": r["supplier_whatsapp"],
+                "supplier_email": r["supplier_email"],
+                "barcode": r["barcode"],
+            })
+        for p in parsed:
+            add_product(self.uid, **p)
+        log_action(self.page, "product_bulk_import", f"count={len(parsed)}")
         self.msg_bar.show_success(
             f"{len(parsed)} — {t(self.page, 'bulk_added')}")
         self._close(self._bulk_dialog)
@@ -522,13 +666,14 @@ class StockScreen:
     # ------------------------------------------------------------------
     def _open_delete(self, p):
         self._delete_id = p["id"]
+        log_action(self.page, "open_delete", f"id={p['id']}")
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(t(self.page, "delete")),
             content=ft.Text(t(self.page, "delete_confirm")),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "delete"),
                                 style=ft.ButtonStyle(bgcolor=T.ERROR),
                                 on_click=lambda e: self._do_delete()),
@@ -551,6 +696,7 @@ class StockScreen:
     # ------------------------------------------------------------------
     def _open_sell(self, p):
         self._sell_product = p
+        log_action(self.page, "open_sell", f"product={p['id']}")
         self.f_sell_qty = ft.TextField(
             label=t(self.page, "sell_quantity"),
             value="1",
@@ -577,7 +723,7 @@ class StockScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "sell"),
                                 on_click=lambda e: self._do_sell()),
             ],
@@ -618,6 +764,7 @@ class StockScreen:
     # ------------------------------------------------------------------
     def _open_credit_sell(self, p):
         self._credit_product = p
+        log_action(self.page, "open_credit_sell", f"product={p['id']}")
         customers = get_customers(self.uid)
 
         self._seg_new = ft.RadioGroup(
@@ -674,7 +821,7 @@ class StockScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "save"),
                                 on_click=lambda e: self._do_credit_sell()),
             ],
@@ -686,6 +833,8 @@ class StockScreen:
 
     def _toggle_customer(self):
         is_new = (self._seg_new.value == "new")
+        log_action(self.page, "credit_customer_toggle",
+                   f"mode={'new' if is_new else 'existing'}")
         self.customer_dropdown.visible = not is_new
         self.f_cname.visible = is_new
         self.f_cphone.visible = is_new
@@ -741,6 +890,8 @@ class StockScreen:
     def _open_movement(self, p, mtype):
         self._mv_product = p
         self._mv_type = mtype
+        log_action(self.page, "open_movement",
+                   f"product={p['id']} type={mtype}")
         self.f_mv_qty = ft.TextField(
             label=t(self.page, "quantity"),
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -771,7 +922,7 @@ class StockScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "save"),
                                 on_click=lambda e: self._do_movement()),
             ],
@@ -799,6 +950,8 @@ class StockScreen:
                 self.page, "stock_in_success" if self._mv_type == "in"
                 else "stock_out_success"))
         else:
+            log_action(self.page, "stock_movement_failed",
+                       f"product={self._mv_product['id']} type={self._mv_type} qty={qty:g}")
             self.msg_bar.show_error(t(self.page, "movement_too_many"))
         self._close(self._mv_dialog)
         self._load()
@@ -808,6 +961,7 @@ class StockScreen:
     # Movement history dialog
     # ------------------------------------------------------------------
     def _open_history(self, p):
+        log_action(self.page, "open_history", f"product={p['id']}")
         rows = get_stock_movements_by_product(self.uid, p["id"], limit=50)
         if rows:
             table = ft.DataTable(
@@ -852,7 +1006,7 @@ class StockScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "close"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -863,6 +1017,7 @@ class StockScreen:
     # ------------------------------------------------------------------
     def _open_print_dialog(self):
         self._print_checks = {}
+        log_action(self.page, "open_print_dialog")
         checks = []
         for p in self.products:
             cb = ft.Checkbox(
@@ -895,7 +1050,7 @@ class StockScreen:
             ),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(t(self.page, "print_stickers"),
                                 icon=ft.Icons.PRINT,
                                 on_click=lambda e: self._do_print(dialog)),
@@ -905,6 +1060,7 @@ class StockScreen:
         self.page.show_dialog(dialog)
 
     def _set_all(self, value):
+        log_action(self.page, "print_select_all", f"value={value}")
         for cb in self._print_checks.values():
             cb.value = value
         self.page.update()
@@ -915,6 +1071,7 @@ class StockScreen:
         ]
         selected = [p for p in selected if p]
         if not selected:
+            log_action(self.page, "print_stickers_empty")
             self.msg_bar.show_warning(t(self.page, "print_select"))
             self._close(dialog)
             return
@@ -933,3 +1090,11 @@ class StockScreen:
         except Exception:
             dialog.open = False
             self.page.update()
+
+    def _cancel(self, dialog):
+        try:
+            title = dialog.title.value if hasattr(dialog.title, "value") else ""
+        except Exception:
+            title = ""
+        log_action(self.page, "cancel", f"dialog={title}")
+        self._close(dialog)

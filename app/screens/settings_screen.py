@@ -131,13 +131,14 @@ class SettingsScreen:
         self.msg_bar.show_success(t(self.page, "settings_saved"))
 
     def _confirm_logout(self):
+        log_action(self.page, "logout_confirm_open")
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(t(self.page, "logout")),
             content=ft.Text(t(self.page, "logout_confirm")),
             actions=[
                 ft.TextButton(t(self.page, "cancel"),
-                              on_click=lambda e: self._close(dialog)),
+                              on_click=lambda e: self._cancel(dialog)),
                 ft.FilledButton(
                     t(self.page, "logout"),
                     style=ft.ButtonStyle(bgcolor=T.ERROR),
@@ -148,6 +149,7 @@ class SettingsScreen:
         self.page.show_dialog(dialog)
 
     def _do_logout(self, dialog):
+        log_action(self.page, "logout_confirmed")
         self._close(dialog)
         if self.on_logout:
             self.on_logout()
@@ -158,3 +160,11 @@ class SettingsScreen:
         except Exception:
             dialog.open = False
             self.page.update()
+
+    def _cancel(self, dialog):
+        try:
+            title = dialog.title.value if hasattr(dialog.title, "value") else ""
+        except Exception:
+            title = ""
+        log_action(self.page, "cancel", f"dialog={title}")
+        self._close(dialog)
